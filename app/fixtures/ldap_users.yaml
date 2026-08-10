@@ -1,0 +1,31 @@
+# LDAP LoginProfile mock users (plaintext credentials after AES decrypt)
+# login_id / login_pwd must match what openapi-ptl sends after decrypting the Feign body.
+
+users:
+  - login_id: "ldapuser01"
+    login_pwd: "ldapPass01!"
+    profile:
+      sn: "목사용자01"
+      epmail: "ldapuser01@example.com"
+      epmobile: "01012345678"
+      epdeptn: "API Link Mock"
+      positionc: "01"
+      positionn: "사원"
+      epcomc: "KT"
+      ssoUsOrgId: "ORG001"
+      pwdChangedDate: "20250101000000"
+      pwdExpiredDate: "20991231235959"
+
+  - login_id: "ldapuser02"
+    login_pwd: "ldapPass02!"
+    profile:
+      sn: "목사용자02"
+      epmail: "ldapuser02@example.com"
+      epmobile: "01087654321"
+      epdeptn: "API Link Mock"
+      positionc: "02"
+      positionn: "대리"
+      epcomc: "KT"
+      ssoUsOrgId: "ORG002"
+      pwdChangedDate: "20250101000000"
+      pwdExpiredDate: "20991231235959"

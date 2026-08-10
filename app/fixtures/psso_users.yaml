@@ -1,0 +1,17 @@
+# PSSO memberLogin mock users (plaintext credentials after AES/CBC decrypt)
+# login_id / login_pwd must match what openapi-mng-dev sends after decrypting (EncPSSOID/EncPSSOPW).
+
+users:
+  - login_id: "pssouser01"
+    login_pwd: "pssoPass01!"
+    profile:
+      name: "목사용자01"
+      mobile: "01011112222"
+      email: "pssouser01@example.com"
+
+  - login_id: "pssouser02"
+    login_pwd: "pssoPass02!"
+    profile:
+      name: "목사용자02"
+      mobile: "01033334444"
+      email: "pssouser02@example.com"
