@@ -10,6 +10,38 @@
 |----------|---------------|------|
 | SHUB LDAP LoginProfile (OIF_24006) | `POST /ldap/v3.1/loginprofile` | AES-256/GCM 암복호화 (Java `Aes256GcmSupport` 호환) |
 | PSSO memberLogin (openapi-mng-dev) | `POST /psso/v2.0/psso_memberLogin` | AES/CBC/PKCS5(zero IV) 암복호화 (Java `CommonFunc.aesEncode/aesDecode` 호환) |
+| BEAST 게이트웨이 배포 (openapi-mng-dev-jdk21-new) | `POST /beast/{gw}/apilink/v1/api/apiDply` | 받은 명세를 `apiId` 별로 저장. `{gw}` = `ktc` · `azure` · `prd-ktc` · `prd-azure` |
+| BEAST 게이트웨이 조회 (openapi-mng-dev-jdk21-new) | `GET /beast/{gw}/apilink/v1/api/getApiDplyById?apiId=` | 있으면 `data.value`, 없으면 200 + 빈 `data`(신규) |
+| TB API 도메인 (openapi-mng-dev-jdk21-new 테스트 화면) | `ANY /tbdomain/**` | 어떤 Method·경로든 받아 KT 공통 응답 형식으로 답하고, 받은 요청을 `response.echo` 로 돌려줌 |
+
+### BEAST · TB 도메인 (openapi-mng-dev-jdk21-new `ext.apiops`)
+
+API 배포 프로세스(TB 배포 → 테스트 → 운영 배포)를 로컬에서 시험하기 위한 목이다.
+설계: `openapi-mng-dev-jdk21-new/docs/08_API_DEPLOY_PROCESS_DESIGN.md` §7 · §8-6 · §9-6.
+**상태는 메모리에만 있다** — 목 서버를 재기동하면 모든 게이트웨이가 비워진다.
+
+API Manager 로컬 설정(`config/local/application-local.yml`)에서 주소를 이 서버로 돌린다.
+
+| 대상 | 설정 키 | 목 주소 |
+|---|---|---|
+| `TB_KTC` | `bstgw.api.tb.url` | `http://127.0.0.1:8090/beast/ktc` |
+| `TB_AZURE` | `bstgw.api.new.tb.url` | `http://127.0.0.1:8090/beast/azure` |
+| `PRD_KTC` | `bstgw.api.prd.url` | `http://127.0.0.1:8090/beast/prd-ktc` |
+| `PRD_AZURE` | `bstgw.api.new.prd.url` | `http://127.0.0.1:8090/beast/prd-azure` |
+| 테스트 도메인 | `gateway.al.tbUrl` | `http://127.0.0.1:8090/tbdomain` |
+
+실패 흉내 (조작용 주소 — 실제 BEAST 에는 없음):
+
+| 흉내 | 요청 | 목의 응답 → Java 가 받는 결과 |
+|---|---|---|
+| 배포 실패 (BEAST 가 거절) | `PUT /beast/_ctl/{gw}` `{"deploy":"fail"}` | HTTP 200 + `common.code 400` → `NK` |
+| 배포 연동 실패 | `PUT /beast/_ctl/{gw}` `{"deploy":"error"}` | HTTP 500 → `ERR` |
+| 조회 연동 실패 | `PUT /beast/_ctl/{gw}` `{"query":"error"}` | HTTP 500 → v2 가 배포를 중단 |
+| 정상으로 | `PUT /beast/_ctl/{gw}` `{"deploy":"ok","query":"ok"}` | |
+| 현황 · 저장된 명세 | `GET /beast/_ctl` · `GET /beast/{gw}/_store/{apiId}` | 롤백 확인에 쓴다 |
+| 전부 비우기 | `DELETE /beast/_store` | |
+| 테스트 도메인 실패 · 시간 초과 | `PUT /tbdomain/_ctl` `{"mode":"fail","status":500}` / `{"mode":"timeout","delay_ms":35000}` | |
+| 테스트 도메인 정상으로 | `DELETE /tbdomain/_ctl` | |
 
 공통:
 
