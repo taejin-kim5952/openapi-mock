@@ -12,13 +12,22 @@
 | PSSO memberLogin (openapi-mng-dev) | `POST /psso/v2.0/psso_memberLogin` | AES/CBC/PKCS5(zero IV) 암복호화 (Java `CommonFunc.aesEncode/aesDecode` 호환) |
 | BEAST 게이트웨이 배포 (openapi-mng-dev-jdk21-new) | `POST /beast/{gw}/apilink/v1/api/apiDply` | 받은 명세를 `apiId` 별로 저장. `{gw}` = `ktc` · `azure` · `prd-ktc` · `prd-azure` |
 | BEAST 게이트웨이 조회 (openapi-mng-dev-jdk21-new) | `GET /beast/{gw}/apilink/v1/api/getApiDplyById?apiId=` | 있으면 `data.value`, 없으면 200 + 빈 `data`(신규) |
-| TB API 도메인 (openapi-mng-dev-jdk21-new 테스트 화면) | `ANY /tbdomain/**` | 어떤 Method·경로든 받아 KT 공통 응답 형식으로 답하고, 받은 요청을 `response.echo` 로 돌려줌 |
+| TB API 도메인 (openapi-mng-dev-jdk21-new 테스트 화면) | `ANY /tbdomain/**` | **TB 게이트웨이에 배포된 API 만** 답한다. KT 공통 응답 형식으로 답하고, 받은 요청을 `response.echo` 로 돌려줌 |
 
 ### BEAST · TB 도메인 (openapi-mng-dev-jdk21-new `ext.apiops`)
 
 API 배포 프로세스(TB 배포 → 테스트 → 운영 배포)를 로컬에서 시험하기 위한 목이다.
 설계: `openapi-mng-dev-jdk21-new/docs/08_API_DEPLOY_PROCESS_DESIGN.md` §7 · §8-6 · §9-6.
-**상태는 메모리에만 있다** — 목 서버를 재기동하면 모든 게이트웨이가 비워진다.
+**상태는 파일에 남는다** — 게이트웨이에 배포된 명세와 흉내 스위치는 `STATE_FILE` 이 가리키는
+JSON 파일에 저장된다. 목 서버를 다시 띄워도 올라간 API 가 그대로 있다. 비우려면 `DELETE /beast/_store`.
+
+| 환경 | 파일 위치 | 유지되나 |
+|---|---|---|
+| 로컬 | `openapi-mock/data/state.json` (기본값, `STATE_FILE` 로 변경) | 재기동해도 유지 |
+| 도커 | `/data/state.json` — 볼륨 `openapi-mock-data` 를 `/data` 에 마운트 | 재배포해도 유지 |
+
+> 도커에서 **볼륨을 마운트하지 않으면** 컨테이너를 지울 때 배포 기록이 함께 사라진다.
+> Jenkinsfile 의 `-v ${DATA_VOLUME}:/data` 가 그 역할을 한다. 수동으로 띄울 때도 빠뜨리지 말 것.
 
 API Manager 로컬 설정(`config/local/application-local.yml`)에서 주소를 이 서버로 돌린다.
 
@@ -29,6 +38,24 @@ API Manager 로컬 설정(`config/local/application-local.yml`)에서 주소를 
 | `PRD_KTC` | `bstgw.api.prd.url` | `http://127.0.0.1:8090/beast/prd-ktc` |
 | `PRD_AZURE` | `bstgw.api.new.prd.url` | `http://127.0.0.1:8090/beast/prd-azure` |
 | 테스트 도메인 | `gateway.al.tbUrl` | `http://127.0.0.1:8090/tbdomain` |
+
+#### 배포한 API 만 호출된다
+
+테스트 도메인은 **TB 게이트웨이(`ktc` · `azure`)에 배포된 명세**와 맞는 호출에만 답한다.
+배포 전문의 인입 경로(`in`)와 Method(`meth`)로 맞춰 보고, 없으면 404 로 거절한다.
+
+```
+POST /tbdomain/psso/v1.0/CAPRI_psso_defaultJoin
+  → 404  "[mock] 배포되지 않은 API 입니다 - POST /psso/... TB 배포를 먼저 하세요."
+
+(TB 배포 후 같은 호출)
+  → 200  response.echo.deployedOn = {"gateway":"ktc","apiId":"psso_defaultJoin_v1.0"}
+```
+
+- 실제 게이트웨이도 배포된 것만 라우팅한다. 화면이 가르치는 순서(TB 배포 → 테스트)를 목에서도 그대로 겪게 하려는 것이다.
+- 경로 변수는 한 조각을 덮는다. `/messages/{msgId}` 로 배포했으면 `/messages/42` 가 걸린다.
+- 배포와 무관하게 아무 경로나 받게 하려면 `PUT /tbdomain/_ctl {"require_deploy": false}`.
+- 응답의 `response.echo.deployedOn` 으로 **어느 게이트웨이의 어느 apiId 에 걸렸는지** 확인할 수 있다.
 
 실패 흉내 (조작용 주소 — 실제 BEAST 에는 없음):
 
@@ -41,7 +68,8 @@ API Manager 로컬 설정(`config/local/application-local.yml`)에서 주소를 
 | 현황 · 저장된 명세 | `GET /beast/_ctl` · `GET /beast/{gw}/_store/{apiId}` | 롤백 확인에 쓴다 |
 | 전부 비우기 | `DELETE /beast/_store` | |
 | 테스트 도메인 실패 · 시간 초과 | `PUT /tbdomain/_ctl` `{"mode":"fail","status":500}` / `{"mode":"timeout","delay_ms":35000}` | |
-| 테스트 도메인 정상으로 | `DELETE /tbdomain/_ctl` | |
+| 테스트 도메인 정상으로 | `DELETE /tbdomain/_ctl` | 배포 확인도 켜진 상태로 돌아간다 |
+| 배포 확인 끄기 | `PUT /tbdomain/_ctl` `{"require_deploy":false}` | 배포하지 않은 경로도 답한다(예전 동작) |
 
 공통:
 

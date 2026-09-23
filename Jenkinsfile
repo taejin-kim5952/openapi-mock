@@ -5,6 +5,8 @@ pipeline {
         IMAGE_NAME     = 'openapi-mock'
         CONTAINER_NAME = 'openapi-mock'
         HOST_PORT      = '8090'
+        // 게이트웨이에 배포된 명세를 담는 볼륨. 컨테이너를 지웠다 다시 띄워도 남아야 한다.
+        DATA_VOLUME    = 'openapi-mock-data'
     }
 
     options {
@@ -36,6 +38,7 @@ pipeline {
                         --name ${CONTAINER_NAME} \
                         --restart unless-stopped \
                         -p ${HOST_PORT}:8090 \
+                        -v ${DATA_VOLUME}:/data \
                         ${IMAGE_NAME}:${BUILD_NUMBER}
                 """
             }

@@ -4,6 +4,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 APP_DIR = Path(__file__).resolve().parent
+REPO_DIR = APP_DIR.parent
 DEFAULT_USERS_FILE = APP_DIR / "fixtures" / "ldap_users.yaml"
 DEFAULT_PSSO_USERS_FILE = APP_DIR / "fixtures" / "psso_users.yaml"
 
@@ -14,6 +15,10 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
     )
+
+    # 재기동해도 남아야 하는 상태(게이트웨이에 배포된 명세 · 흉내 스위치)를 담는 파일.
+    # 도커에서는 이미지 밖(마운트한 볼륨)을 가리켜야 재배포에도 남는다 - Dockerfile 의 STATE_FILE 참고.
+    state_file: Path = REPO_DIR / "data" / "state.json"
 
     mock_host: str = "0.0.0.0"
     mock_port: int = 8090

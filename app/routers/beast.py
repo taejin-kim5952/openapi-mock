@@ -31,7 +31,9 @@ Control (mock only — not part of BEAST):
     GET    /beast/{gw}/_store/{apiId}  the spec currently "registered" on that gateway
     DELETE /beast/_store               forget everything (all gateways)
 
-State is in memory only: restarting the mock empties every gateway.
+State is kept in a JSON file (app/store.py), so restarting the mock — or redeploying the
+container, as long as the volume is mounted — leaves every deployed API where it was.
+`DELETE /beast/_store` is the only way to empty it.
 """
 
 from __future__ import annotations
@@ -42,16 +44,36 @@ from fastapi import APIRouter, Body, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
+from app import store
+
 router = APIRouter(tags=["beast"])
 
 GATEWAYS = ("ktc", "azure", "prd-ktc", "prd-azure")
 
 OK_COMMON = {"code": 200, "message": "정상처리되었습니다."}
 
+# 배포된 명세와 스위치는 파일에 남는다(app/store.py). 목을 다시 띄워도 올라간 API 가 그대로 있어야
+# 화면의 "현재 등록본"·"신규 배포" 판정이 어제와 같은 답을 낸다.
+_STORE_KEY = "beast_store"
+_CTL_KEY = "beast_ctl"
+
 # gateway -> apiId -> spec
 _store: dict[str, dict[str, dict[str, Any]]] = {gw: {} for gw in GATEWAYS}
+_store.update({gw: specs for gw, specs in store.load(_STORE_KEY, {}).items() if gw in GATEWAYS})
+
 # gateway -> switches
 _ctl: dict[str, dict[str, str]] = {gw: {"deploy": "ok", "query": "ok"} for gw in GATEWAYS}
+for _gw, _switches in store.load(_CTL_KEY, {}).items():
+    if _gw in GATEWAYS:
+        _ctl[_gw].update(_switches)
+
+
+def _save_store() -> None:
+    store.save(_STORE_KEY, _store)
+
+
+def _save_ctl() -> None:
+    store.save(_CTL_KEY, _ctl)
 
 
 class CtlReq(BaseModel):
@@ -63,6 +85,41 @@ def _gateway(gw: str) -> str:
     if gw not in GATEWAYS:
         raise HTTPException(status_code=404, detail=f"unknown gateway: {gw} (use one of {', '.join(GATEWAYS)})")
     return gw
+
+
+TB_GATEWAYS = ("ktc", "azure")
+
+
+def find_deployed(path: str, method: str, gateways: tuple[str, ...] = TB_GATEWAYS):
+    """Find a deployed spec whose inbound path and method match this call.
+
+    The TB domain uses this to refuse calls to APIs that were never deployed, so the screens
+    show the same "deploy first, then call" order a real gateway enforces.
+
+    `in` is the inbound path the gateway publishes (API_PATH) and `meth` the method, both taken
+    straight from the deploy payload. A `{param}` segment matches any single segment, so
+    /messages/{msgId} answers a call to /messages/42.
+
+    Returns (gateway, apiId, spec) or None.
+    """
+    wanted = _segments(path)
+    for gw in gateways:
+        for api_id, spec in _store[gw].items():
+            if str(spec.get("meth", "")).upper() != method.upper():
+                continue
+            if _path_matches(_segments(str(spec.get("in", ""))), wanted):
+                return gw, api_id, spec
+    return None
+
+
+def _segments(path: str) -> list[str]:
+    return [s for s in path.split("/") if s]
+
+
+def _path_matches(pattern: list[str], actual: list[str]) -> bool:
+    if len(pattern) != len(actual):
+        return False
+    return all(p.startswith("{") and p.endswith("}") or p == a for p, a in zip(pattern, actual))
 
 
 def _transport_error(op: str) -> JSONResponse:
@@ -85,6 +142,7 @@ def put_ctl(gw: str, req: CtlReq) -> dict[str, str]:
         _ctl[gw]["deploy"] = req.deploy
     if req.query is not None:
         _ctl[gw]["query"] = req.query
+    _save_ctl()
     return _ctl[gw]
 
 
@@ -93,6 +151,8 @@ def reset_store() -> dict[str, str]:
     for gw in GATEWAYS:
         _store[gw].clear()
         _ctl[gw].update({"deploy": "ok", "query": "ok"})
+    _save_store()
+    _save_ctl()
     return {"result": "cleared"}
 
 
@@ -124,6 +184,7 @@ def api_deploy(gw: str, spec: dict[str, Any] = Body(...)):
         _store[gw].pop(api_id, None)
     else:
         _store[gw][api_id] = spec
+    _save_store()
     return {"common": OK_COMMON}
 
 
