@@ -12,6 +12,7 @@
 | PSSO memberLogin (openapi-mng-dev) | `POST /psso/v2.0/psso_memberLogin` | AES/CBC/PKCS5(zero IV) 암복호화 (Java `CommonFunc.aesEncode/aesDecode` 호환) |
 | BEAST 게이트웨이 배포 (openapi-mng-dev-jdk21-new) | `POST /beast/{gw}/apilink/v1/api/apiDply` | 받은 명세를 `apiId` 별로 저장. `{gw}` = `ktc` · `azure` · `prd-ktc` · `prd-azure` |
 | BEAST 게이트웨이 조회 (openapi-mng-dev-jdk21-new) | `GET /beast/{gw}/apilink/v1/api/getApiDplyById?apiId=` | 있으면 `data.value`, 없으면 200 + 빈 `data`(신규) |
+| BEAST 게이트웨이 목록 (openapi-mng-dev-jdk21-new 규격 검증) | `GET /beast/{gw}/apilink/v1/api/getApiDplyList[?dplyType=]` | 올라간 명세 전부를 `data.value` 배열로 |
 | TB API 도메인 (openapi-mng-dev-jdk21-new 테스트 화면) | `ANY /tbdomain/**` | **TB 게이트웨이에 배포된 API 만** 답한다. KT 공통 응답 형식으로 답하고, 받은 요청을 `response.echo` 로 돌려줌 |
 
 ### BEAST · TB 도메인 (openapi-mng-dev-jdk21-new `ext.apiops`)

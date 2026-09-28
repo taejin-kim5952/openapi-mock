@@ -20,6 +20,13 @@ Query    GET  /beast/{gw}/apilink/v1/api/getApiDplyById?apiId=...
     not found : HTTP 200 {"common": {...200}, "data": {}}      -> "없음(신규 배포)"
     ext.apiops judges this call by HTTP 200 only (design 08 §5 ③).
 
+List     GET  /beast/{gw}/apilink/v1/api/getApiDplyList[?dplyType=DPLY|DEL]
+    HTTP 200 {"common": {...200}, "data": {"value": [<stored spec>, ...]}}
+    Same envelope as the single query, `value` is an array (one element per API). The BEAST admin
+    screen (beastApiTest_inc.html, api-get-list) and the spec verify screen (ext.apiops.verify)
+    read it that way. `dplyType` filters on each spec's own dplyType; the mock only keeps DPLY
+    specs (DEL removes them), so DEL always answers an empty list.
+
 Two kinds of failure, switched per gateway through the control endpoints below:
     deploy = "fail"   -> HTTP 200 + common.code 400   (BEAST refused  -> Java NK)
     deploy = "error"  -> HTTP 500                      (transport fail -> Java ERR)
@@ -199,6 +206,18 @@ def api_deploy(gw: str, spec: dict[str, Any] = Body(...)):
         _store[gw][api_id] = spec
     _save_store()
     return {"common": OK_COMMON}
+
+
+@router.get("/beast/{gw}/apilink/v1/api/getApiDplyList")
+def get_api_deploy_list(gw: str, dply_type: str | None = Query(None, alias="dplyType")):
+    _gateway(gw)
+    if _ctl[gw]["query"] == "error":
+        return _transport_error("목록 조회")
+
+    specs = list(_store[gw].values())
+    if dply_type:
+        specs = [s for s in specs if str(s.get("dplyType", "DPLY")).upper() == dply_type.upper()]
+    return {"common": OK_COMMON, "data": {"value": specs}}
 
 
 @router.get("/beast/{gw}/apilink/v1/api/getApiDplyById")
