@@ -105,11 +105,24 @@ def find_deployed(path: str, method: str, gateways: tuple[str, ...] = TB_GATEWAY
     wanted = _segments(path)
     for gw in gateways:
         for api_id, spec in _store[gw].items():
-            if str(spec.get("meth", "")).upper() != method.upper():
+            if method.upper() not in _methods(spec):
                 continue
             if _path_matches(_segments(str(spec.get("in", ""))), wanted):
                 return gw, api_id, spec
     return None
+
+
+def _methods(spec: dict[str, Any]) -> set[str]:
+    """Methods a deployed spec answers, upper-cased.
+
+    The deploy payload (BstgwApiDplyEntity.meth) sends `meth` as a list — ["POST"] — because
+    one API may accept several methods. Comparing str(list) to "POST" never matched, so every
+    test call was refused as "not deployed" (2026-09-28). A plain string is accepted too.
+    """
+    meth = spec.get("meth", "")
+    if isinstance(meth, str):
+        meth = [meth]
+    return {str(m).upper() for m in meth}
 
 
 def _segments(path: str) -> list[str]:
