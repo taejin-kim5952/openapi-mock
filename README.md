@@ -40,6 +40,19 @@ API Manager 로컬 설정(`config/local/application-local.yml`)에서 주소를 
 | `PRD_AZURE` | `bstgw.api.new.prd.url` | `http://127.0.0.1:8090/beast/prd-azure` |
 | 테스트 도메인 | `gateway.al.tbUrl` | `http://127.0.0.1:8090/tbdomain` |
 
+#### 서비스(워크스페이스 · 애플리케이션) 배포도 받는다
+
+포털(ptl `BeastSyncService`)과 ONM 통합 관리자의 '애플리케이션 관리'가 보내는 서비스 단위 배포다.
+API 명세와는 따로 저장하며, 스위치(`deploy` · `query`)는 같은 것을 쓴다.
+
+| 동작 | 경로 |
+|---|---|
+| 배포 | `POST /beast/{gw}/apilink/v1/svc/svcDplyEnc` — 전문의 `svcId` 가 키, `dplyType: DEL` 이면 삭제 |
+| 조회 | `GET /beast/{gw}/apilink/v1/svc/getSvcDplyById?svcId=...` — 있으면 `data.value`, 없으면 `data: {}` |
+| 확인 | `GET /beast/{gw}/_svc/{svcId}`, `GET /beast/_ctl` 의 `svcIds` |
+
+ONM 로컬 설정(`application-local.yml`)의 BEAST 주소도 위 표와 같은 곳(`/beast/ktc`, `/beast/azure`, `/beast/prd-*`)으로 돌린다.
+
 #### 배포한 API 만 호출된다
 
 테스트 도메인은 **TB 게이트웨이(`ktc` · `azure`)에 배포된 명세**와 맞는 호출에만 답한다.

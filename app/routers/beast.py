@@ -32,11 +32,20 @@ Two kinds of failure, switched per gateway through the control endpoints below:
     deploy = "error"  -> HTTP 500                      (transport fail -> Java ERR)
     query  = "error"  -> HTTP 500                      (-> ext.apiops stops the deploy)
 
+Service (workspace / application) deploy — what the portal (ptl BeastSyncService) and the ONM
+"애플리케이션 관리" screen send. One service = one workspace key; `svcId` is the key.
+    Deploy  POST /beast/{gw}/apilink/v1/svc/svcDplyEnc
+        body : BeastSvcDplyReqDto JSON. ok = HTTP 200 {"common": {...200}}
+    Query   GET  /beast/{gw}/apilink/v1/svc/getSvcDplyById?svcId=...
+        found / not found : same envelope as the API query ("data": {"value": ...} / "data": {})
+    Uses the same deploy/query switches as the API endpoints. Stored separately from API specs.
+
 Control (mock only — not part of BEAST):
     GET    /beast/_ctl                 switches + stored apiIds of every gateway
     PUT    /beast/_ctl/{gw}            {"deploy": "ok|fail|error", "query": "ok|error"}
     GET    /beast/{gw}/_store/{apiId}  the spec currently "registered" on that gateway
-    DELETE /beast/_store               forget everything (all gateways)
+    GET    /beast/{gw}/_svc/{svcId}    the service (workspace) spec registered on that gateway
+    DELETE /beast/_store               forget everything (all gateways, APIs and services)
 
 State is kept in a JSON file (app/store.py), so restarting the mock — or redeploying the
 container, as long as the volume is mounted — leaves every deployed API where it was.
@@ -62,11 +71,16 @@ OK_COMMON = {"code": 200, "message": "정상처리되었습니다."}
 # 배포된 명세와 스위치는 파일에 남는다(app/store.py). 목을 다시 띄워도 올라간 API 가 그대로 있어야
 # 화면의 "현재 등록본"·"신규 배포" 판정이 어제와 같은 답을 낸다.
 _STORE_KEY = "beast_store"
+_SVC_STORE_KEY = "beast_svc_store"
 _CTL_KEY = "beast_ctl"
 
 # gateway -> apiId -> spec
 _store: dict[str, dict[str, dict[str, Any]]] = {gw: {} for gw in GATEWAYS}
 _store.update({gw: specs for gw, specs in store.load(_STORE_KEY, {}).items() if gw in GATEWAYS})
+
+# gateway -> svcId -> service spec (workspace deploy, svcDplyEnc)
+_svc_store: dict[str, dict[str, dict[str, Any]]] = {gw: {} for gw in GATEWAYS}
+_svc_store.update({gw: specs for gw, specs in store.load(_SVC_STORE_KEY, {}).items() if gw in GATEWAYS})
 
 # gateway -> switches
 _ctl: dict[str, dict[str, str]] = {gw: {"deploy": "ok", "query": "ok"} for gw in GATEWAYS}
@@ -77,6 +91,7 @@ for _gw, _switches in store.load(_CTL_KEY, {}).items():
 
 def _save_store() -> None:
     store.save(_STORE_KEY, _store)
+    store.save(_SVC_STORE_KEY, _svc_store)
 
 
 def _save_ctl() -> None:
@@ -152,7 +167,7 @@ def _transport_error(op: str) -> JSONResponse:
 
 @router.get("/beast/_ctl")
 def get_ctl() -> dict[str, Any]:
-    return {gw: {**_ctl[gw], "apiIds": sorted(_store[gw])} for gw in GATEWAYS}
+    return {gw: {**_ctl[gw], "apiIds": sorted(_store[gw]), "svcIds": sorted(_svc_store[gw])} for gw in GATEWAYS}
 
 
 @router.put("/beast/_ctl/{gw}")
@@ -170,6 +185,7 @@ def put_ctl(gw: str, req: CtlReq) -> dict[str, str]:
 def reset_store() -> dict[str, str]:
     for gw in GATEWAYS:
         _store[gw].clear()
+        _svc_store[gw].clear()
         _ctl[gw].update({"deploy": "ok", "query": "ok"})
     _save_store()
     _save_ctl()
@@ -182,6 +198,52 @@ def get_stored(gw: str, api_id: str) -> dict[str, Any]:
     if spec is None:
         raise HTTPException(status_code=404, detail=f"{api_id} is not registered on {gw}")
     return spec
+
+
+@router.get("/beast/{gw}/_svc/{svc_id}")
+def get_stored_svc(gw: str, svc_id: str) -> dict[str, Any]:
+    spec = _svc_store[_gateway(gw)].get(svc_id)
+    if spec is None:
+        raise HTTPException(status_code=404, detail=f"service {svc_id} is not registered on {gw}")
+    return spec
+
+
+# --------------------------------------------------------------------- BEAST (service / workspace)
+
+@router.post("/beast/{gw}/apilink/v1/svc/svcDplyEnc")
+def svc_deploy(gw: str, spec: dict[str, Any] = Body(...)):
+    """Workspace (application) deploy. The portal sends the whole service state each time —
+    key (userNm/pw), svcEndDt (= key expiry), ipAcesAut, apiAut — so the stored spec is simply
+    replaced. `pw` arrives encrypted by the caller; the mock keeps whatever it gets."""
+    _gateway(gw)
+    mode = _ctl[gw]["deploy"]
+    if mode == "error":
+        return _transport_error("서비스 배포")
+    if mode == "fail":
+        return {"common": {"code": 400, "message": "[mock] 서비스 배포 실패 흉내 — svcId 가 유효하지 않습니다."}}
+
+    svc_id = spec.get("svcId")
+    if not svc_id:
+        return {"common": {"code": 400, "message": "[mock] svcId 가 없습니다."}}
+
+    if str(spec.get("dplyType", "")).upper() == "DEL":
+        _svc_store[gw].pop(svc_id, None)
+    else:
+        _svc_store[gw][svc_id] = spec
+    _save_store()
+    return {"common": OK_COMMON}
+
+
+@router.get("/beast/{gw}/apilink/v1/svc/getSvcDplyById")
+def get_svc_deploy_by_id(gw: str, svc_id: str = Query(..., alias="svcId")):
+    _gateway(gw)
+    if _ctl[gw]["query"] == "error":
+        return _transport_error("서비스 조회")
+
+    spec = _svc_store[gw].get(svc_id)
+    if spec is None:
+        return {"common": OK_COMMON, "data": {}}
+    return {"common": OK_COMMON, "data": {"value": spec}}
 
 
 # --------------------------------------------------------------------- BEAST
