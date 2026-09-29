@@ -39,12 +39,27 @@ Service (workspace / application) deploy — what the portal (ptl BeastSyncServi
     Query   GET  /beast/{gw}/apilink/v1/svc/getSvcDplyById?svcId=...
         found / not found : same envelope as the API query ("data": {"value": ...} / "data": {})
     Uses the same deploy/query switches as the API endpoints. Stored separately from API specs.
+    Also  POST /beast/{gw}/apilink/v1/svc/svcDply            (plain-payload variant, same store)
+          GET  /beast/{gw}/apilink/v1/svc/getSvcDplyList[?dplyType=]  every stored service
+
+ApiLinkData (부가정보 : ROUTE / DOMAIN / PARAM / DATA) — what the portal (BeastApiLinkDataSyncService)
+and the API Manager 부가정보관리 screen send. One record = (type, key) -> {type, key, value, dplyDt}.
+    Query   GET    /beast/{gw}/apilink/v1/data/getApiLinkDataByType?type=&key=
+        found / not found : "data": {"value": {...}} / "data": {}
+    List    GET    /beast/{gw}/apilink/v1/data/getApiLinkDataList[?type=]
+    Create  POST   /beast/{gw}/apilink/v1/data/createApiLinkData   body {type, key, value, dplyDt?}
+    Update  PUT    /beast/{gw}/apilink/v1/data/apiLinkData         body {type, key, value, dplyDt?}
+    Delete  DELETE /beast/{gw}/apilink/v1/data/apiLinkData?type=&key=
+    create on an existing (type, key) and update/delete on a missing one answer common.code 400,
+    the way the portal expects (it queries first and picks create/update from the answer).
+    dplyDt is stamped by the mock when the body has none (the portal re-reads it after create/update).
 
 Control (mock only — not part of BEAST):
     GET    /beast/_ctl                 switches + stored apiIds of every gateway
     PUT    /beast/_ctl/{gw}            {"deploy": "ok|fail|error", "query": "ok|error"}
     GET    /beast/{gw}/_store/{apiId}  the spec currently "registered" on that gateway
     GET    /beast/{gw}/_svc/{svcId}    the service (workspace) spec registered on that gateway
+    GET    /beast/{gw}/_data           every ApiLinkData record on that gateway
     DELETE /beast/_store               forget everything (all gateways, APIs and services)
 
 State is kept in a JSON file (app/store.py), so restarting the mock — or redeploying the
@@ -72,6 +87,7 @@ OK_COMMON = {"code": 200, "message": "정상처리되었습니다."}
 # 화면의 "현재 등록본"·"신규 배포" 판정이 어제와 같은 답을 낸다.
 _STORE_KEY = "beast_store"
 _SVC_STORE_KEY = "beast_svc_store"
+_DATA_STORE_KEY = "beast_data_store"
 _CTL_KEY = "beast_ctl"
 
 # gateway -> apiId -> spec
@@ -81,6 +97,10 @@ _store.update({gw: specs for gw, specs in store.load(_STORE_KEY, {}).items() if 
 # gateway -> svcId -> service spec (workspace deploy, svcDplyEnc)
 _svc_store: dict[str, dict[str, dict[str, Any]]] = {gw: {} for gw in GATEWAYS}
 _svc_store.update({gw: specs for gw, specs in store.load(_SVC_STORE_KEY, {}).items() if gw in GATEWAYS})
+
+# gateway -> "TYPE|key" -> {type, key, value, dplyDt}  (ApiLinkData)
+_data_store: dict[str, dict[str, dict[str, Any]]] = {gw: {} for gw in GATEWAYS}
+_data_store.update({gw: recs for gw, recs in store.load(_DATA_STORE_KEY, {}).items() if gw in GATEWAYS})
 
 # gateway -> switches
 _ctl: dict[str, dict[str, str]] = {gw: {"deploy": "ok", "query": "ok"} for gw in GATEWAYS}
@@ -92,6 +112,7 @@ for _gw, _switches in store.load(_CTL_KEY, {}).items():
 def _save_store() -> None:
     store.save(_STORE_KEY, _store)
     store.save(_SVC_STORE_KEY, _svc_store)
+    store.save(_DATA_STORE_KEY, _data_store)
 
 
 def _save_ctl() -> None:
@@ -167,7 +188,8 @@ def _transport_error(op: str) -> JSONResponse:
 
 @router.get("/beast/_ctl")
 def get_ctl() -> dict[str, Any]:
-    return {gw: {**_ctl[gw], "apiIds": sorted(_store[gw]), "svcIds": sorted(_svc_store[gw])} for gw in GATEWAYS}
+    return {gw: {**_ctl[gw], "apiIds": sorted(_store[gw]), "svcIds": sorted(_svc_store[gw]),
+                 "dataKeys": sorted(_data_store[gw])} for gw in GATEWAYS}
 
 
 @router.put("/beast/_ctl/{gw}")
@@ -186,6 +208,7 @@ def reset_store() -> dict[str, str]:
     for gw in GATEWAYS:
         _store[gw].clear()
         _svc_store[gw].clear()
+        _data_store[gw].clear()
         _ctl[gw].update({"deploy": "ok", "query": "ok"})
     _save_store()
     _save_ctl()
@@ -234,6 +257,23 @@ def svc_deploy(gw: str, spec: dict[str, Any] = Body(...)):
     return {"common": OK_COMMON}
 
 
+@router.post("/beast/{gw}/apilink/v1/svc/svcDply")
+def svc_deploy_plain(gw: str, spec: dict[str, Any] = Body(...)):
+    """Older plain-payload variant the API Manager screen (SVC-POST) can use. Same store."""
+    return svc_deploy(gw, spec)
+
+
+@router.get("/beast/{gw}/apilink/v1/svc/getSvcDplyList")
+def get_svc_deploy_list(gw: str, dply_type: str | None = Query(None, alias="dplyType")):
+    _gateway(gw)
+    if _ctl[gw]["query"] == "error":
+        return _transport_error("서비스 목록 조회")
+    specs = list(_svc_store[gw].values())
+    if dply_type:
+        specs = [s for s in specs if str(s.get("dplyType", "DPLY")).upper() == dply_type.upper()]
+    return {"common": OK_COMMON, "data": {"value": specs}}
+
+
 @router.get("/beast/{gw}/apilink/v1/svc/getSvcDplyById")
 def get_svc_deploy_by_id(gw: str, svc_id: str = Query(..., alias="svcId")):
     _gateway(gw)
@@ -244,6 +284,111 @@ def get_svc_deploy_by_id(gw: str, svc_id: str = Query(..., alias="svcId")):
     if spec is None:
         return {"common": OK_COMMON, "data": {}}
     return {"common": OK_COMMON, "data": {"value": spec}}
+
+
+# --------------------------------------------------------------------- BEAST (ApiLinkData)
+
+def _data_key(type_: str, key: str) -> str:
+    return f"{str(type_).upper()}|{key}"
+
+
+def _now_dply_dt() -> str:
+    from datetime import datetime
+    return datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+
+@router.get("/beast/{gw}/_data")
+def get_stored_data(gw: str) -> list[dict[str, Any]]:
+    return list(_data_store[_gateway(gw)].values())
+
+
+@router.get("/beast/{gw}/apilink/v1/data/getApiLinkDataByType")
+def get_apilink_data_by_type(gw: str, type_: str = Query(..., alias="type"), key: str = Query(...)):
+    _gateway(gw)
+    if _ctl[gw]["query"] == "error":
+        return _transport_error("부가정보 조회")
+    rec = _data_store[gw].get(_data_key(type_, key))
+    if rec is None:
+        return {"common": OK_COMMON, "data": {}}
+    return {"common": OK_COMMON, "data": {"value": rec}}
+
+
+@router.get("/beast/{gw}/apilink/v1/data/getApiLinkDataList")
+def get_apilink_data_list(gw: str, type_: str | None = Query(None, alias="type")):
+    _gateway(gw)
+    if _ctl[gw]["query"] == "error":
+        return _transport_error("부가정보 목록 조회")
+    recs = list(_data_store[gw].values())
+    if type_:
+        recs = [r for r in recs if str(r.get("type", "")).upper() == type_.upper()]
+    return {"common": OK_COMMON, "data": {"value": recs}}
+
+
+def _data_record(body: dict[str, Any]) -> dict[str, Any] | None:
+    type_ = body.get("type")
+    key = body.get("key")
+    if not type_ or not key:
+        return None
+    return {
+        "type": str(type_).upper(),
+        "key": key,
+        "value": body.get("value"),
+        "dplyDt": body.get("dplyDt") or _now_dply_dt(),
+    }
+
+
+@router.post("/beast/{gw}/apilink/v1/data/createApiLinkData")
+def create_apilink_data(gw: str, body: dict[str, Any] = Body(...)):
+    _gateway(gw)
+    mode = _ctl[gw]["deploy"]
+    if mode == "error":
+        return _transport_error("부가정보 생성")
+    if mode == "fail":
+        return {"common": {"code": 400, "message": "[mock] 부가정보 생성 실패 흉내."}}
+    rec = _data_record(body)
+    if rec is None:
+        return {"common": {"code": 400, "message": "[mock] type · key 가 없습니다."}}
+    k = _data_key(rec["type"], rec["key"])
+    if k in _data_store[gw]:
+        return {"common": {"code": 400, "message": f"[mock] 이미 있는 부가정보입니다 - {rec['type']} {rec['key']}. 수정(PUT)을 쓰세요."}}
+    _data_store[gw][k] = rec
+    _save_store()
+    return {"common": OK_COMMON}
+
+
+@router.put("/beast/{gw}/apilink/v1/data/apiLinkData")
+def update_apilink_data(gw: str, body: dict[str, Any] = Body(...)):
+    _gateway(gw)
+    mode = _ctl[gw]["deploy"]
+    if mode == "error":
+        return _transport_error("부가정보 수정")
+    if mode == "fail":
+        return {"common": {"code": 400, "message": "[mock] 부가정보 수정 실패 흉내."}}
+    rec = _data_record(body)
+    if rec is None:
+        return {"common": {"code": 400, "message": "[mock] type · key 가 없습니다."}}
+    k = _data_key(rec["type"], rec["key"])
+    if k not in _data_store[gw]:
+        return {"common": {"code": 400, "message": f"[mock] 없는 부가정보입니다 - {rec['type']} {rec['key']}. 생성(POST)을 쓰세요."}}
+    _data_store[gw][k] = rec
+    _save_store()
+    return {"common": OK_COMMON}
+
+
+@router.delete("/beast/{gw}/apilink/v1/data/apiLinkData")
+def delete_apilink_data(gw: str, type_: str = Query(..., alias="type"), key: str = Query(...)):
+    _gateway(gw)
+    mode = _ctl[gw]["deploy"]
+    if mode == "error":
+        return _transport_error("부가정보 삭제")
+    if mode == "fail":
+        return {"common": {"code": 400, "message": "[mock] 부가정보 삭제 실패 흉내."}}
+    k = _data_key(type_, key)
+    if k not in _data_store[gw]:
+        return {"common": {"code": 400, "message": f"[mock] 없는 부가정보입니다 - {type_} {key}."}}
+    _data_store[gw].pop(k)
+    _save_store()
+    return {"common": OK_COMMON}
 
 
 # --------------------------------------------------------------------- BEAST

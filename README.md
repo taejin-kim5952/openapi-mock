@@ -50,6 +50,24 @@ API 명세와는 따로 저장하며, 스위치(`deploy` · `query`)는 같은 �
 | 배포 | `POST /beast/{gw}/apilink/v1/svc/svcDplyEnc` — 전문의 `svcId` 가 키, `dplyType: DEL` 이면 삭제 |
 | 조회 | `GET /beast/{gw}/apilink/v1/svc/getSvcDplyById?svcId=...` — 있으면 `data.value`, 없으면 `data: {}` |
 | 확인 | `GET /beast/{gw}/_svc/{svcId}`, `GET /beast/_ctl` 의 `svcIds` |
+| 평문 배포 · 목록 | `POST .../svc/svcDply` (같은 저장소), `GET .../svc/getSvcDplyList[?dplyType=]` — API Manager 서비스관리 화면의 SVC-POST · SVC-GET-list |
+
+#### 부가정보(ApiLinkData : ROUTE · DOMAIN · PARAM · DATA)도 받는다
+
+포털(ptl `BeastApiLinkDataSyncService`)이 API 승인 때 보내는 것이고, API Manager 부가정보관리 화면도 같은 것을 부른다.
+한 건 = (type, key) → {type, key, value, dplyDt}. 게이트웨이마다 따로 저장한다.
+
+| 동작 | 경로 | 규칙 |
+|---|---|---|
+| 조회 | `GET /beast/{gw}/apilink/v1/data/getApiLinkDataByType?type=&key=` | 있으면 `data.value`, 없으면 `data: {}` |
+| 목록 | `GET /beast/{gw}/apilink/v1/data/getApiLinkDataList[?type=]` | `data.value` 배열 |
+| 생성 | `POST /beast/{gw}/apilink/v1/data/createApiLinkData` | 이미 있으면 `common.code 400` |
+| 수정 | `PUT /beast/{gw}/apilink/v1/data/apiLinkData` | 없으면 `common.code 400` |
+| 삭제 | `DELETE /beast/{gw}/apilink/v1/data/apiLinkData?type=&key=` | 없으면 `common.code 400` |
+| 확인 | `GET /beast/{gw}/_data`, `GET /beast/_ctl` 의 `dataKeys` | |
+
+포털은 조회해서 있으면 수정, 없으면 생성으로 가르므로 생성·수정을 엄격히 구분한다. `dplyDt` 가 없으면 목이 지금 시각을 찍는다(포털은 생성 뒤 다시 조회해 그 값을 이력에 쓴다).
+`deploy` · `query` 스위치는 API · 서비스와 같은 것을 쓴다.
 
 ONM 로컬 설정(`application-local.yml`)의 BEAST 주소도 위 표와 같은 곳(`/beast/ktc`, `/beast/azure`, `/beast/prd-*`)으로 돌린다.
 
