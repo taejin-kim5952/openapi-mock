@@ -48,6 +48,7 @@ API 명세와는 따로 저장하며, 스위치(`deploy` · `query`)는 같은 �
 | 동작 | 경로 |
 |---|---|
 | 배포 | `POST /beast/{gw}/apilink/v1/svc/svcDplyEnc` — 전문의 `svcId` 가 키, `dplyType: DEL` 이면 삭제 |
+| 저장 모양 | 실제 게이트웨이와 같게 `ktc`/`prd-ktc` 는 `apiAut` 만, `azure`/`prd-azure` 는 `apiDomainAcesAut` 만 남기고, `atrib: {cpId, serviceId}` 를 붙여 돌려준다 (2026-09-29 실데이터 기준) |
 | 조회 | `GET /beast/{gw}/apilink/v1/svc/getSvcDplyById?svcId=...` — 있으면 `data.value`, 없으면 `data: {}` |
 | 확인 | `GET /beast/{gw}/_svc/{svcId}`, `GET /beast/_ctl` 의 `svcIds` |
 | 평문 배포 · 목록 | `POST .../svc/svcDply` (같은 저장소), `GET .../svc/getSvcDplyList[?dplyType=]` — API Manager 서비스관리 화면의 SVC-POST · SVC-GET-list |

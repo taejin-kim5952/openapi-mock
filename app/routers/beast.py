@@ -233,6 +233,23 @@ def get_stored_svc(gw: str, svc_id: str) -> dict[str, Any]:
 
 # --------------------------------------------------------------------- BEAST (service / workspace)
 
+def _svc_shape(gw: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """Store the spec the way the real gateways hand it back (checked against live data, 2026-09-29).
+    The portal sends both API lists to both gateways, but each gateway keeps only its own:
+      KTC   -> apiAut            (list of api names, version suffix already stripped)
+      AZURE -> apiDomainAcesAut  (list of {apiId, domainAcesAut[]}; apiId keeps its _v1.0 suffix)
+    Both return `atrib: {cpId, serviceId}` even when the caller sent none."""
+    out = dict(spec)
+    if gw.endswith("azure"):
+        out.pop("apiAut", None)
+        out.setdefault("apiDomainAcesAut", [])
+    else:
+        out.pop("apiDomainAcesAut", None)
+        out.setdefault("apiAut", [])
+    out.setdefault("atrib", {"cpId": "", "serviceId": ""})
+    return out
+
+
 @router.post("/beast/{gw}/apilink/v1/svc/svcDplyEnc")
 def svc_deploy(gw: str, spec: dict[str, Any] = Body(...)):
     """Workspace (application) deploy. The portal sends the whole service state each time —
@@ -252,7 +269,7 @@ def svc_deploy(gw: str, spec: dict[str, Any] = Body(...)):
     if str(spec.get("dplyType", "")).upper() == "DEL":
         _svc_store[gw].pop(svc_id, None)
     else:
-        _svc_store[gw][svc_id] = spec
+        _svc_store[gw][svc_id] = _svc_shape(gw, spec)
     _save_store()
     return {"common": OK_COMMON}
 
@@ -410,7 +427,11 @@ def api_deploy(gw: str, spec: dict[str, Any] = Body(...)):
     if spec.get("dplyType") == "DEL":
         _store[gw].pop(api_id, None)
     else:
-        _store[gw][api_id] = spec
+        # Live gateways (KTC and AZURE alike, checked 2026-09-29) hand the API spec back exactly as
+        # sent, except that `prntsApiId` always comes back as a list even when the caller omitted it.
+        stored = dict(spec)
+        stored.setdefault("prntsApiId", [])
+        _store[gw][api_id] = stored
     _save_store()
     return {"common": OK_COMMON}
 
