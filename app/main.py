@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 
-from app.routers import beast, ldap, mail, psso, shub_verify, tb_domain
+from app.routers import beast, entra, ldap, mail, psso, shub_verify, tb_domain
 
 app = FastAPI(
     title="openapi-mock",
@@ -15,6 +15,8 @@ app.include_router(mail.router)
 # openapi-mng-dev-jdk21-new ext.apiops — BEAST gateway and the TB API domain (docs/08 §7, §8-6, §9-6)
 app.include_router(beast.router)
 app.include_router(tb_domain.router)
+# openapi-mng-dev-jdk21-new 로그인 — Microsoft Entra ID(OIDC) 흉내. 무조건 성공한다
+app.include_router(entra.router)
 
 
 @app.get("/health")

@@ -14,6 +14,7 @@
 | BEAST 게이트웨이 조회 (openapi-mng-dev-jdk21-new) | `GET /beast/{gw}/apilink/v1/api/getApiDplyById?apiId=` | 있으면 `data.value`, 없으면 200 + 빈 `data`(신규) |
 | BEAST 게이트웨이 목록 (openapi-mng-dev-jdk21-new 규격 검증) | `GET /beast/{gw}/apilink/v1/api/getApiDplyList[?dplyType=]` | 올라간 명세 전부를 `data.value` 배열로 |
 | TB API 도메인 (openapi-mng-dev-jdk21-new 테스트 화면) | `ANY /tbdomain/**` | **TB 게이트웨이에 배포된 API 만** 답한다. KT 공통 응답 형식으로 답하고, 받은 요청을 `response.echo` 로 돌려줌 |
+| Microsoft Entra ID 로그인 (openapi-mng-dev-jdk21-new) | `GET /entra/{tenant}/oauth2/v2.0/authorize` 외 4개 | OIDC 인가 코드 방식. **무조건 성공**하고, 누구로 들어갈지는 `login_hint`(아이디)로 정한다 |
 
 ### BEAST · TB 도메인 (openapi-mng-dev-jdk21-new `ext.apiops`)
 
@@ -226,3 +227,35 @@ new:
 | openapi-mock | **8090** |
 | openapi-ptl | 8080 |
 | openapi-ptl-ui | 5173 |
+
+## Microsoft Entra ID 로그인 (openapi-mng-dev-jdk21-new)
+
+외부망에서는 진짜 Entra ID 에 닿지 않아, 같은 절차(OIDC 인가 코드 방식)를 이 서버가 흉내 낸다.
+API Manager 쪽 코드는 운영용 그대로이고 설정의 주소만 이 서버로 돌린다.
+
+| 하는 일 | 경로 |
+|---|---|
+| 로그인 화면 자리 | `GET /entra/{tenant}/oauth2/v2.0/authorize` — 묻지 않고 바로 `redirect_uri?code=..&state=..` 로 돌려보낸다 |
+| 토큰 | `POST /entra/{tenant}/oauth2/v2.0/token` — `access_token` + `id_token`(RS256 서명) |
+| 서명 검증용 공개키 | `GET /entra/{tenant}/discovery/v2.0/keys` |
+| UserInfo | `GET /entra/oidc/userinfo` — `name` · `family_name` · `email` |
+| 설정 문서 | `GET /entra/{tenant}/v2.0/.well-known/openid-configuration` |
+
+- **무조건 성공한다.** 비밀번호를 묻지 않는다. `login_hint=아이디` 가 오면 그 사람으로, 없으면 아이디를 묻는 작은 화면을 보여 준다.
+- 돌려주는 항목은 실제 Entra ID 응답과 같다(2026-10-02 실제 응답 기준, 값은 전부 지어낸 것).
+  `email` 은 `아이디@ktpartners.com`, `preferred_username` 은 `아이디@ktcorp365.onmicrosoft.com`,
+  `name` 은 `목사용자NNNN(kt ds협력사)`, `family_name` 은 `목사용자NNNN` 이다. API Manager 는 `email` 의 @ 앞을 아이디로 쓴다.
+- `{tenant}` 는 아무 값이나 된다(`mock-tenant`). 발급자(`iss`)는 **이 서버를 부른 주소**로 만들어진다 —
+  API Manager 설정의 `base-uri` 와 호스트가 같아야 토큰 검증을 통과한다.
+- 서명 키는 뜰 때마다 새로 만든다. 다시 띄우면 받는 쪽이 공개키를 다시 읽어 간다.
+
+API Manager 설정(`apiops.login.entra.*`, 환경변수):
+
+```
+APIOPS_ENTRA_ENABLED=true
+APIOPS_ENTRA_BASE_URI=http://<목 서버>:8090/entra/mock-tenant
+APIOPS_ENTRA_USERINFO_URI=http://<목 서버>:8090/entra/oidc/userinfo
+APIOPS_ENTRA_CLIENT_ID=apimanager-dev
+APIOPS_ENTRA_CLIENT_SECRET=<아무 값>
+APIOPS_DEV_LOGIN=true          # 로그인 화면에 아이디 입력 칸을 낸다
+```

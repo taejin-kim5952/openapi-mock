@@ -431,6 +431,8 @@ def api_deploy(gw: str, spec: dict[str, Any] = Body(...)):
         # sent, except that `prntsApiId` always comes back as a list even when the caller omitted it.
         stored = dict(spec)
         stored.setdefault("prntsApiId", [])
+        # `encrypt` is a gateway-side field the caller never sends: KTC answers null, AZURE answers [].
+        stored.setdefault("encrypt", [] if gw.endswith("azure") else None)
         _store[gw][api_id] = stored
     _save_store()
     return {"common": OK_COMMON}
