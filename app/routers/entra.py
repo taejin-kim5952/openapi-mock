@@ -31,11 +31,11 @@ import secrets
 import time
 import uuid
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode
 
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
-from fastapi import APIRouter, Form, Header, HTTPException, Request
+from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 router = APIRouter(tags=["entra"])
@@ -179,15 +179,18 @@ def authorize(
 
 # ---------------------------------------------------------------- 토큰
 @router.post("/entra/{tenant}/oauth2/v2.0/token")
-def token(
+async def token(
     tenant: str,
     request: Request,
-    grant_type: str = Form(""),
-    code: str = Form(""),
-    redirect_uri: str = Form(""),
-    client_id: str = Form(""),
     authorization: str | None = Header(default=None),
 ):
+    # 폼(x-www-form-urlencoded)을 직접 읽는다. FastAPI 의 Form 은 python-multipart 가 따로 있어야 해서 쓰지 않는다
+    form = parse_qs((await request.body()).decode("utf-8"), keep_blank_values=True)
+
+    def field(name: str) -> str:
+        return (form.get(name) or [""])[0]
+
+    grant_type, code, redirect_uri, client_id = field("grant_type"), field("code"), field("redirect_uri"), field("client_id")
     # 클라이언트 인증은 값이 왔는지만 본다(목). client_secret_basic 이면 아이디가 헤더에 실려 온다
     if not client_id and authorization and authorization.lower().startswith("basic "):
         try:
